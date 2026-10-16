@@ -205,4 +205,6 @@ cargo build --release --target wasm32-unknown-unknown
 The release build is at
 `target/wasm32-unknown-unknown/release/nanoid.wasm`. Push a `v*` tag to run CI,
 which tests the crate and attaches `nanoid.wasm` as a directly downloadable
-GitHub Release asset.
+GitHub Release asset. If you cannot create tags directly, push a branch named
+`release/v0.1.0`; CI creates the matching `v0.1.0` tag and release after tests
+pass.
