@@ -1,0 +1,15 @@
+{
+  "name": "@autotrof/nanoid",
+  "version": "0.1.0",
+  "description": "Small, dependency-free secure Nano ID generator for JavaScript",
+  "type": "module",
+  "exports": "./index.js",
+  "files": ["index.js", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test scripts/test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
