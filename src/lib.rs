@@ -201,7 +201,7 @@ mod wasm {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_with_rng, Error, DEFAULT_ALPHABET, MAX_LENGTH};
+    use super::{generate_with_rng, validate_excluded, Error, DEFAULT_ALPHABET, MAX_LENGTH};
 
     #[test]
     fn produces_requested_length_and_uses_available_symbols() {
