@@ -271,6 +271,9 @@ mod tests {
 
     #[test]
     fn rejects_invalid_utf8_exclusion_bytes() {
-        assert_eq!(validate_excluded(&[0xf0, 0x28, 0x8c, 0x28]), Err(Error::InvalidUtf8));
+        assert_eq!(
+            validate_excluded(&[0xf0, 0x28, 0x8c, 0x28]),
+            Err(Error::InvalidUtf8)
+        );
     }
 }
