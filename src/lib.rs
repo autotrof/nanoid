@@ -91,11 +91,7 @@ where
 }
 
 /// Generate from Nano ID's default URL-safe alphabet.
-pub fn generate_with_rng<F>(
-    length: usize,
-    excluded: &str,
-    fill_random: F,
-) -> Result<String, Error>
+pub fn generate_with_rng<F>(length: usize, excluded: &str, fill_random: F) -> Result<String, Error>
 where
     F: FnMut(&mut [u8]) -> Result<(), ()>,
 {
@@ -105,7 +101,10 @@ where
 
 #[cfg(target_arch = "wasm32")]
 mod wasm {
-    use super::{generate_with_alphabet_and_rng, generate_with_rng, DEFAULT_ALPHABET, MAX_ALPHABET_BYTES, MAX_EXCLUDED_BYTES, MAX_LENGTH};
+    use super::{
+        generate_with_alphabet_and_rng, DEFAULT_ALPHABET, MAX_ALPHABET_BYTES,
+        MAX_EXCLUDED_BYTES, MAX_LENGTH,
+    };
     use std::alloc::{alloc, dealloc, Layout};
     use std::ptr;
     use std::slice;
@@ -155,7 +154,7 @@ mod wasm {
         excluded_ptr: *const u8,
         excluded_len: u32,
     ) -> i32 {
-        generate_with_alphabet(
+        let status = generate_with_alphabet(
             output_ptr,
             length,
             length,
@@ -163,7 +162,8 @@ mod wasm {
             excluded_len,
             DEFAULT_ALPHABET.as_ptr(),
             DEFAULT_ALPHABET.len() as u32,
-        )
+        );
+        if status >= 0 { 0 } else { status }
     }
 
     /// Generate UTF-8 output from a caller-provided UTF-8 alphabet.
@@ -208,7 +208,10 @@ mod wasm {
             Some(end) => end,
             None => return -5,
         };
-        for (input_ptr, input_len) in [(excluded_ptr as usize, excluded_len), (alphabet_ptr as usize, alphabet_len)] {
+        for (input_ptr, input_len) in [
+            (excluded_ptr as usize, excluded_len),
+            (alphabet_ptr as usize, alphabet_len),
+        ] {
             if input_len > 0 {
                 let input_end = match input_ptr.checked_add(input_len) {
                     Some(end) => end,
@@ -222,15 +225,29 @@ mod wasm {
         if excluded_len > 0 && alphabet_len > 0 {
             let excluded_start = excluded_ptr as usize;
             let alphabet_start = alphabet_ptr as usize;
-            let excluded_end = match excluded_start.checked_add(excluded_len) { Some(end) => end, None => return -5 };
-            let alphabet_end = match alphabet_start.checked_add(alphabet_len) { Some(end) => end, None => return -5 };
+            let excluded_end = match excluded_start.checked_add(excluded_len) {
+                Some(end) => end,
+                None => return -5,
+            };
+            let alphabet_end = match alphabet_start.checked_add(alphabet_len) {
+                Some(end) => end,
+                None => return -5,
+            };
             if excluded_start < alphabet_end && alphabet_start < excluded_end {
                 return -5;
             }
         }
 
-        let excluded_bytes = if excluded_len == 0 { &[][..] } else { slice::from_raw_parts(excluded_ptr, excluded_len) };
-        let alphabet_bytes = if alphabet_len == 0 { &[][..] } else { slice::from_raw_parts(alphabet_ptr, alphabet_len) };
+        let excluded_bytes = if excluded_len == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(excluded_ptr, excluded_len)
+        };
+        let alphabet_bytes = if alphabet_len == 0 {
+            &[][..]
+        } else {
+            slice::from_raw_parts(alphabet_ptr, alphabet_len)
+        };
         let excluded = match super::validate_excluded(excluded_bytes) {
             Ok(value) => value,
             Err(_) => return -1,
@@ -240,12 +257,19 @@ mod wasm {
             Err(_) => return -1,
         };
 
-        let generated = match generate_with_alphabet_and_rng(length, excluded, alphabet, |buffer| {
-            // SAFETY: `buffer` is a live stack range in linear memory. The host
-            // fills it with cryptographically secure random bytes.
-            if random_fill(buffer.as_mut_ptr(), buffer.len() as u32) != 0 { return Err(()); }
-            Ok(())
-        }) {
+        let generated = match generate_with_alphabet_and_rng(
+            length,
+            excluded,
+            alphabet,
+            |buffer| {
+                // SAFETY: `buffer` is a live stack range in linear memory. The host
+                // fills it with cryptographically secure random bytes.
+                if random_fill(buffer.as_mut_ptr(), buffer.len() as u32) != 0 {
+                    return Err(());
+                }
+                Ok(())
+            },
+        ) {
             Ok(value) => value,
             Err(super::Error::RandomSourceFailed) => return -4,
             Err(super::Error::EmptyAlphabet) => return -3,
@@ -264,7 +288,10 @@ mod wasm {
 
 #[cfg(test)]
 mod tests {
-    use super::{generate_with_alphabet_and_rng, generate_with_rng, validate_excluded, Error, DEFAULT_ALPHABET, MAX_LENGTH};
+    use super::{
+        generate_with_alphabet_and_rng, generate_with_rng, validate_excluded, Error,
+        DEFAULT_ALPHABET, MAX_LENGTH,
+    };
 
     #[test]
     fn produces_requested_length_and_uses_available_symbols() {
@@ -320,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn rejection_sampling_skips_the_incomplete_random_byte_bucket() {
+    fn rejection_sampling_skips_the_incomplete_random_word_bucket() {
         let mut batches = 0;
         let id = generate_with_rng(1, "A", |bytes| {
             bytes.fill(if batches == 0 { 255 } else { 0 });
@@ -361,6 +388,9 @@ mod tests {
         .unwrap();
         assert_eq!(id.chars().count(), 50);
         assert!(id.chars().all(|symbol| symbol == 'é'));
-        assert_eq!(generate_with_alphabet_and_rng(0, "", "🙂", |_| Ok(())).unwrap(), "");
+        assert_eq!(
+            generate_with_alphabet_and_rng(0, "", "🙂", |_| Ok(())).unwrap(),
+            ""
+        );
     }
 }
