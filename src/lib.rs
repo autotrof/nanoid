@@ -102,8 +102,8 @@ where
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::{
-        generate_with_alphabet_and_rng, DEFAULT_ALPHABET, MAX_ALPHABET_BYTES,
-        MAX_EXCLUDED_BYTES, MAX_LENGTH,
+        generate_with_alphabet_and_rng, DEFAULT_ALPHABET, MAX_ALPHABET_BYTES, MAX_EXCLUDED_BYTES,
+        MAX_LENGTH,
     };
     use std::alloc::{alloc, dealloc, Layout};
     use std::ptr;
@@ -163,7 +163,11 @@ mod wasm {
             DEFAULT_ALPHABET.as_ptr(),
             DEFAULT_ALPHABET.len() as u32,
         );
-        if status >= 0 { 0 } else { status }
+        if status >= 0 {
+            0
+        } else {
+            status
+        }
     }
 
     /// Generate UTF-8 output from a caller-provided UTF-8 alphabet.
@@ -257,19 +261,14 @@ mod wasm {
             Err(_) => return -1,
         };
 
-        let generated = match generate_with_alphabet_and_rng(
-            length,
-            excluded,
-            alphabet,
-            |buffer| {
-                // SAFETY: `buffer` is a live stack range in linear memory. The host
-                // fills it with cryptographically secure random bytes.
-                if random_fill(buffer.as_mut_ptr(), buffer.len() as u32) != 0 {
-                    return Err(());
-                }
-                Ok(())
-            },
-        ) {
+        let generated = match generate_with_alphabet_and_rng(length, excluded, alphabet, |buffer| {
+            // SAFETY: `buffer` is a live stack range in linear memory. The host
+            // fills it with cryptographically secure random bytes.
+            if random_fill(buffer.as_mut_ptr(), buffer.len() as u32) != 0 {
+                return Err(());
+            }
+            Ok(())
+        }) {
             Ok(value) => value,
             Err(super::Error::RandomSourceFailed) => return -4,
             Err(super::Error::EmptyAlphabet) => return -3,
