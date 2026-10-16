@@ -8,30 +8,32 @@ in browsers, Cloudflare Workers, and Node.js without WASI or JavaScript glue.
 
 Download [`nanoid.wasm` from the latest release](https://github.com/autotrof/nanoid/releases/latest/download/nanoid.wasm).
 The module exports linear memory, `alloc_buffer(length)`,
-`free_buffer(pointer, length)`, and `generate(outputPtr, length, excludedPtr,
-excludedLength)`. It imports `env.random_fill(pointer, length) -> i32`. The host
-must fill the provided linear-memory range with cryptographically secure random
-bytes and return `0` on success. `generate` requests bytes in batches of 64.
+`free_buffer(pointer, length)`, `generate(...)`, and
+`generate_with_alphabet(...)`. It imports `env.random_fill(pointer, length) ->
+i32`. The host must fill the provided linear-memory range with cryptographically
+secure random bytes and return `0` on success.
 
 ## ABI
 
 | Item | Contract |
 | --- | --- |
 | Import | `env.random_fill(i32, i32) -> i32`; fill the linear-memory range with CSPRNG bytes and return `0` on success |
-| Exports | `memory`, `alloc_buffer(i32) -> i32`, `free_buffer(i32, i32)`, and `generate(i32, i32, i32, i32) -> i32` |
-| Arguments | output pointer, output length in bytes, UTF-8 exclusions pointer, exclusion byte length |
-| Success | `0`; exactly `length` ASCII bytes are written at `outputPtr` |
-| Errors | `-1` invalid UTF-8; `-2` output length over 1,048,576; `-3` exclusions remove all symbols; `-4` random import failed; `-5` null, overlapping, or overflowing ranges; `-6` exclusions exceed 1,048,576 bytes |
+| Exports | `memory`, `alloc_buffer(i32) -> i32`, `free_buffer(i32, i32)`, `generate(i32, i32, i32, i32) -> i32`, and `generate_with_alphabet(i32, i32, i32, i32, i32, i32, i32) -> i32` |
+| `generate` arguments | output pointer, output length in bytes, UTF-8 exclusions pointer, exclusion byte length; preserves the original ASCII-only ABI |
+| `generate_with_alphabet` arguments | output pointer, output byte capacity, output symbol count, UTF-8 exclusions pointer and byte length, UTF-8 alphabet pointer and byte length |
+| Success | `generate` returns `0`; `generate_with_alphabet` returns bytes written. Output symbol count means Unicode scalar values, not bytes |
+| Errors | `-1` invalid UTF-8; `-2` output symbol count over 1,048,576; `-3` exclusions remove all alphabet symbols; `-4` random import failed; `-5` null, overlapping, or overflowing ranges; `-6` exclusions exceed 1,048,576 bytes; `-7` output capacity too small; `-8` alphabet exceeds 1,048,576 bytes |
 | Memory | Call `alloc_buffer` for host input/output, then `free_buffer` with the original pointer and length. Allocator-owned buffers remain valid while Rust allocates internally. Input/output ranges must not overlap. |
 | Defaults | Alphabet is `_-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ` (64 symbols) |
 
-Exclusions are UTF-8 text interpreted as Unicode scalar values. Excluding `a`
-removes ASCII `a`; excluding `é` or `🦀` is valid and leaves the default ASCII
-alphabet unchanged. Invalid UTF-8 is rejected before output is written. The
-module rejects a set that removes every default alphabet symbol. Random bytes
-are mapped with rejection sampling, so modulo reduction does not introduce
+Exclusions and custom alphabets are UTF-8 text interpreted as Unicode scalar
+values. With the default alphabet, non-ASCII exclusions such as `é` or `🦀` do
+not change the ASCII output. A custom alphabet can contain letters, punctuation,
+emoji, and other Unicode symbols. Duplicate alphabet symbols are removed, so
+each remaining symbol has equal probability. Invalid UTF-8 is rejected before
+output is written. Output length counts Unicode scalar values, not UTF-8 bytes
+or grapheme clusters. Random values use rejection sampling to avoid modulo
 bias. Use only a CSPRNG import for production IDs.
-
 ## Browser
 
 Save `nanoid.wasm` beside this module, or replace the URL with the release URL.
@@ -74,6 +76,41 @@ async function main() {
 }
 
 main();
+```
+
+## Custom UTF-8 alphabet
+
+Use `generate_with_alphabet` for custom output symbols. The requested length is
+the number of Unicode scalar values, while the output buffer is measured in
+bytes. Allocate up to four output bytes per requested symbol. The export returns
+the number of UTF-8 bytes written, or a negative error code.
+
+```js
+function nanoidFromAlphabet(instance, length = 21, excluded = "", alphabet = "abcé★🙂") {
+  const { memory, alloc_buffer, free_buffer, generate_with_alphabet } = instance.exports;
+  const excludedBytes = new TextEncoder().encode(excluded);
+  const alphabetBytes = new TextEncoder().encode(alphabet);
+  const outputCapacity = length * 4;
+  const outputPtr = alloc_buffer(outputCapacity) >>> 0;
+  const excludedPtr = alloc_buffer(excludedBytes.length) >>> 0;
+  const alphabetPtr = alloc_buffer(alphabetBytes.length) >>> 0;
+  if (!outputPtr || !excludedPtr || !alphabetPtr) throw new Error("Wasm buffer allocation failed");
+  try {
+    new Uint8Array(memory.buffer, excludedPtr, excludedBytes.length).set(excludedBytes);
+    new Uint8Array(memory.buffer, alphabetPtr, alphabetBytes.length).set(alphabetBytes);
+    const written = generate_with_alphabet(
+      outputPtr, outputCapacity, length,
+      excludedPtr, excludedBytes.length,
+      alphabetPtr, alphabetBytes.length,
+    );
+    if (written < 0) throw new Error(`nanoid wasm error ${written}`);
+    return new TextDecoder().decode(new Uint8Array(memory.buffer, outputPtr, written));
+  } finally {
+    free_buffer(alphabetPtr, alphabetBytes.length);
+    free_buffer(excludedPtr, excludedBytes.length);
+    free_buffer(outputPtr, outputCapacity);
+  }
+}
 ```
 
 ## Cloudflare Workers
@@ -183,9 +220,13 @@ The Rust crate exposes `generate_with_rng` for applications that already have a
 secure random source:
 
 ```rust
-use nanoid::generate_with_rng;
+use nanoid::{generate_with_alphabet_and_rng, generate_with_rng};
 
 let id = generate_with_rng(21, "-_", |bytes| {
+    getrandom::getrandom(bytes).map_err(|_| ())
+})?;
+
+let unicode_id = generate_with_alphabet_and_rng(12, "é", "abcé★🙂", |bytes| {
     getrandom::getrandom(bytes).map_err(|_| ())
 })?;
 ```

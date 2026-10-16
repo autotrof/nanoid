@@ -62,4 +62,29 @@ assert.equal(generate(allSymbolsOutputPtr, 1, allSymbolsPtr, allSymbols.length),
 free_buffer(allSymbolsPtr, allSymbols.length);
 free_buffer(allSymbolsOutputPtr, 1);
 
-console.log("Wasm smoke test passed (8192-byte ID, large UTF-8 exclusions, ABI errors).");
+const alphabet = Buffer.from("é🙂★λ");
+const excludedSymbols = Buffer.from("é");
+const utf8OutputPtr = allocate(100 * 4);
+const alphabetPtr = allocate(alphabet.length);
+const excludedSymbolsPtr = allocate(excludedSymbols.length);
+new Uint8Array(memory.buffer, alphabetPtr, alphabet.length).set(alphabet);
+new Uint8Array(memory.buffer, excludedSymbolsPtr, excludedSymbols.length).set(excludedSymbols);
+const written = instance.exports.generate_with_alphabet(
+  utf8OutputPtr, 100 * 4, 100,
+  excludedSymbolsPtr, excludedSymbols.length,
+  alphabetPtr, alphabet.length,
+);
+assert.ok(written > 0);
+const unicodeId = new TextDecoder().decode(new Uint8Array(memory.buffer, utf8OutputPtr, written));
+assert.equal([...unicodeId].length, 100);
+assert.ok([...unicodeId].every((symbol) => ["🙂", "★", "λ"].includes(symbol)));
+assert.equal(instance.exports.generate_with_alphabet(
+  utf8OutputPtr, 1, 100,
+  excludedSymbolsPtr, excludedSymbols.length,
+  alphabetPtr, alphabet.length,
+), -7);
+free_buffer(excludedSymbolsPtr, excludedSymbols.length);
+free_buffer(alphabetPtr, alphabet.length);
+free_buffer(utf8OutputPtr, 100 * 4);
+
+console.log("Wasm smoke test passed (ASCII compatibility, UTF-8 alphabet, ABI errors).");
