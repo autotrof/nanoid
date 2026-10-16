@@ -74,6 +74,8 @@ function createGenerator(excluded, alphabet) {
   };
 }
 
+const generateDefault = createGenerator("", DEFAULT_ALPHABET);
+
 /**
  * Generate a cryptographically secure random ID.
  *
@@ -83,6 +85,7 @@ function createGenerator(excluded, alphabet) {
  * @returns {string}
  */
 export function nanoid(size = 21, excluded = "", alphabet = DEFAULT_ALPHABET) {
+  if (excluded === "" && alphabet === DEFAULT_ALPHABET) return generateDefault(size);
   return createGenerator(excluded, alphabet)(size);
 }
 
